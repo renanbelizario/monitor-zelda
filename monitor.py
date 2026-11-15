@@ -14,7 +14,7 @@ PRODUTOS = [
     },
     {
         "loja": "Best Buy",
-        "url": "https://www.bestbuy.com/product/switch-2-the-legend-of-zelda-40th-anniversary-edition/J7GSL57HTY/sku/6691841",
+        "url": "https://www.bestbuy.com/site/6691841.p?skuId=6691841",
         "preco_maximo": 520.00,
     },
     {
@@ -111,7 +111,7 @@ def checar_produto(page, item):
             print(f"[{loja}] Página desativada, erro ou CAPTCHA. Ignorando.")
             return False
 
-        # 2. Trava específica da GameStop: ignora item exclusivo de loja física ("Available In Stores")
+        # 2. Trava específica da GameStop: ignora item exclusivo de loja física
         if loja == "GameStop":
             termos_loja_fisica = [
                 "not available",
@@ -142,7 +142,7 @@ def checar_produto(page, item):
             print(f"[{loja}] Esgotado ('{botao_esgotado.inner_text().strip()}').")
             return False
 
-        # 5. Procura APENAS botões reais de compra (removido 'a' para não confundir com links do menu como 'Pre-Order')
+        # 5. Procura APENAS botões reais de compra online
         botao_compra = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
                 r"^(add to cart|pre-order|pre-order now|buy now|ship it|add to bag)$",
@@ -183,6 +183,7 @@ def verificar():
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
+                "--disable-http2",
             ],
         )
         context = browser.new_context(
