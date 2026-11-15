@@ -71,12 +71,10 @@ def preco_dentro_do_oficial(texto_pagina, preco_maximo):
 
 def vendedor_oficial_confirmado(loja, texto_lower):
     if loja == "Amazon":
-        # Cobre tanto o layout atual ("Shipper / Seller Amazon.com") quanto o clássico ("Sold by Amazon.com")
         return bool(
             re.search(r"(shipper\s*/\s*seller|sold by)[:\s]*amazon\.com", texto_lower)
         )
     if loja == "Walmart":
-        # Confirma venda e envio diretos pelo próprio Walmart ("Sold and shipped by Walmart.com")
         return (
             "sold and shipped by walmart.com" in texto_lower
             or "sold and shipped by walmart" in texto_lower
@@ -97,7 +95,7 @@ def checar_produto(page, item):
         texto_bruto = page.locator("body").inner_text()
         texto_lower = texto_bruto.lower()
 
-        # 1. Filtro contra páginas desativadas (ex: Walmart 404), erros ou CAPTCHA
+        # 1. Filtro contra páginas desativadas, erros ou CAPTCHA
         termos_bloqueio = [
             "whoops!",
             "can't be found",
@@ -113,10 +111,17 @@ def checar_produto(page, item):
             print(f"[{loja}] Página desativada, erro ou CAPTCHA. Ignorando.")
             return False
 
-        # 2. Trava específica da GameStop: ignora enquanto o status online indicar indisponível
+        # 2. Trava específica da GameStop: ignora item exclusivo de loja física ("Available In Stores")
         if loja == "GameStop":
-            if "not available" in texto_lower or "out of stock" in texto_lower:
-                print(f"[{loja}] Esgotado online.")
+            termos_loja_fisica = [
+                "not available",
+                "out of stock",
+                "exclusively in stores",
+                "available in stores",
+                "shop in person",
+            ]
+            if any(termo in texto_lower for termo in termos_loja_fisica):
+                print(f"[{loja}] Esgotado online (apenas loja física).")
                 return False
 
         # 3. Trava específica da Best Buy: ignora quando exibe apenas retirada indisponível
@@ -125,10 +130,10 @@ def checar_produto(page, item):
                 print(f"[{loja}] Esgotado online.")
                 return False
 
-        # 4. Verifica se existe botão ou aviso claro de esgotado (ex: Nintendo "Sold out")
+        # 4. Verifica se existe botão ou aviso claro de esgotado
         botao_esgotado = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
-                r"sold out|out of stock|unavailable|not available|coming soon|check stores",
+                r"sold out|out of stock|unavailable|not available|coming soon|check stores|available in stores",
                 re.IGNORECASE,
             )
         ).first
@@ -137,8 +142,8 @@ def checar_produto(page, item):
             print(f"[{loja}] Esgotado ('{botao_esgotado.inner_text().strip()}').")
             return False
 
-        # 5. Procura botões de compra online habilitados ("Add to cart", "Add to Cart", "Buy Now", "Pre-order")
-        botao_compra = page.locator("button, input[type='submit'], a").filter(
+        # 5. Procura APENAS botões reais de compra (removido 'a' para não confundir com links do menu como 'Pre-Order')
+        botao_compra = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
                 r"^(add to cart|pre-order|pre-order now|buy now|ship it|add to bag)$",
                 re.IGNORECASE,
@@ -146,12 +151,10 @@ def checar_produto(page, item):
         ).first
 
         if botao_compra.count() > 0 and not botao_compra.is_disabled():
-            # Confirma vendedor oficial na Amazon e no Walmart
             if not vendedor_oficial_confirmado(loja, texto_lower):
                 print(f"[{loja}] Ignorado: anúncio de revendedor terceirizado.")
                 return False
 
-            # Confirma se o preço está dentro do teto de US$ 520.00
             if not preco_dentro_do_oficial(texto_bruto, preco_maximo):
                 print(f"[{loja}] Ignorado: preço acima do teto (${preco_maximo:.2f}).")
                 return False
