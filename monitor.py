@@ -1,11 +1,10 @@
 import os
 import re
-import time
+import asyncio
 import random
 import requests
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
-# Lista com as 4 lojas que funcionam liso no GitHub Actions (Best Buy desativada por bloqueio de IP)
 PRODUTOS = [
     {
         "loja": "Nintendo Store",
@@ -35,7 +34,7 @@ PRODUTOS = [
 ]
 
 TOPICO_NTFY = os.environ.get("TOPICO_NTFY")
-TOTAL_RODADAS = 12  # 12 voltas completas nas 4 lojas (~14 minutos por ciclo)
+TOTAL_RODADAS = 14  # 14 checagens simultâneas (~14 minutos por ciclo)
 
 
 def enviar_notificacao(loja, url, mensagem):
@@ -65,7 +64,6 @@ def preco_dentro_do_oficial(texto_pagina, preco_maximo):
         return True
 
     menor_preco = min(valores)
-    print(f"   Menor preço detectado: ${menor_preco:.2f}")
     return menor_preco <= preco_maximo
 
 
@@ -82,17 +80,17 @@ def vendedor_oficial_confirmado(loja, texto_lower):
     return True
 
 
-def checar_produto(page, item):
+async def checar_produto(context, item):
     loja = item["loja"]
     url = item["url"]
     preco_maximo = item.get("preco_maximo", 520.00)
-    print(f"[{loja}] Acessando página...")
+    page = await context.new_page()
 
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=35000)
-        page.wait_for_timeout(5000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=35000)
+        await page.wait_for_timeout(5000)
 
-        texto_bruto = page.locator("body").inner_text()
+        texto_bruto = await page.locator("body").inner_text()
         texto_lower = texto_bruto.lower()
 
         # 1. Filtro contra páginas desativadas, erros ou CAPTCHA
@@ -109,9 +107,9 @@ def checar_produto(page, item):
         ]
         if any(termo in texto_lower for termo in termos_bloqueio):
             print(f"[{loja}] Página desativada, erro ou CAPTCHA. Ignorando.")
-            return False
+            return item, False
 
-        # 2. Trava específica da GameStop: ignora item exclusivo de loja física
+        # 2. Trava específica da GameStop
         if loja == "GameStop":
             termos_loja_fisica = [
                 "not available",
@@ -122,9 +120,9 @@ def checar_produto(page, item):
             ]
             if any(termo in texto_lower for termo in termos_loja_fisica):
                 print(f"[{loja}] Esgotado online (apenas loja física).")
-                return False
+                return item, False
 
-        # 3. Verifica se existe botão ou aviso claro de esgotado
+        # 3. Verifica botão ou aviso claro de esgotado
         botao_esgotado = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
                 r"sold out|out of stock|unavailable|not available|coming soon|check stores|available in stores",
@@ -132,9 +130,10 @@ def checar_produto(page, item):
             )
         ).first
 
-        if botao_esgotado.count() > 0:
-            print(f"[{loja}] Esgotado ('{botao_esgotado.inner_text().strip()}').")
-            return False
+        if await botao_esgotado.count() > 0:
+            texto_esg = (await botao_esgotado.inner_text()).strip()
+            print(f"[{loja}] Esgotado ('{texto_esg}').")
+            return item, False
 
         # 4. Procura botões reais de compra online
         botao_compra = page.locator("button, input[type='submit']").filter(
@@ -144,73 +143,76 @@ def checar_produto(page, item):
             )
         ).first
 
-        if botao_compra.count() > 0 and not botao_compra.is_disabled():
+        if await botao_compra.count() > 0 and not await botao_compra.is_disabled():
             if not vendedor_oficial_confirmado(loja, texto_lower):
                 print(f"[{loja}] Ignorado: anúncio de revendedor terceirizado.")
-                return False
+                return item, False
 
             if not preco_dentro_do_oficial(texto_bruto, preco_maximo):
                 print(f"[{loja}] Ignorado: preço acima do teto (${preco_maximo:.2f}).")
-                return False
+                return item, False
 
-            texto_botao = botao_compra.inner_text().strip() or "Add to Cart"
+            texto_botao = (await botao_compra.inner_text()).strip() or "Add to Cart"
             print(f"[{loja}] DISPONÍVEL ONLINE NO PREÇO OFICIAL! Botão: '{texto_botao}'")
             enviar_notificacao(
                 loja,
                 url,
                 f"CORRA! Estoque OFICIAL na {loja} (até $520)! Botão: {texto_botao}",
             )
-            return True
+            return item, True
 
         print(f"[{loja}] Sem botão de compra online ativo.")
-        return False
+        return item, False
 
     except Exception as erro:
         print(f"[{loja}] Erro ao carregar: {erro}")
-        return False
+        return item, False
+    finally:
+        await page.close()
 
 
-def verificar():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
+async def verificar():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
             headless=True,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
             ],
         )
-        context = browser.new_context(
+        context = await browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             viewport={"width": 1366, "height": 768},
             locale="en-US",
             timezone_id="America/New_York",
         )
 
-        context.add_init_script(
+        await context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
 
-        page = context.new_page()
-
         for rodada in range(1, TOTAL_RODADAS + 1):
-            print(f"\n=== Rodada {rodada} de {TOTAL_RODADAS} ===")
-            for item in list(PRODUTOS):
-                encontrou = checar_produto(page, item)
-                if encontrou:
+            print(f"\n=== Rodada Simultânea {rodada} de {TOTAL_RODADAS} ===")
+            
+            # Dispara todas as lojas ao mesmo tempo em paralelo
+            tarefas = [checar_produto(context, item) for item in PRODUTOS]
+            resultados = await asyncio.gather(*tarefas)
+
+            for item, encontrou in resultados:
+                if encontrou and item in PRODUTOS:
                     PRODUTOS.remove(item)
-                time.sleep(random.randint(2, 4))
 
             if not PRODUTOS:
                 print("Todos os itens monitorados foram encontrados! Encerrando.")
                 break
 
             if rodada < TOTAL_RODADAS:
-                espera = random.randint(25, 40)
+                espera = random.randint(45, 60)
                 print(f"Aguardando {espera}s para a próxima rodada...")
-                time.sleep(espera)
+                await asyncio.sleep(espera)
 
-        browser.close()
+        await browser.close()
 
 
 if __name__ == "__main__":
-    verificar()
+    asyncio.run(verificar())
