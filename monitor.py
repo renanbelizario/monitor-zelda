@@ -8,7 +8,6 @@ URL_PRODUTO = (
 )
 TOPICO_NTFY = "meu_alerta_de_switch_2_8042"
 
-# Quantas vezes ele vai checar antes de fechar (15 vezes com pausa de 60s = 15 minutos)
 TOTAL_CHECAGENS = 15
 INTERVALO_SEGUNDOS = 60
 
