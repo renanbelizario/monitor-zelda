@@ -8,6 +8,7 @@ on:
 jobs:
   monitorar:
     runs-on: ubuntu-latest
+
     steps:
       - name: Baixar código do repositório
         uses: actions/checkout@v4
@@ -21,7 +22,7 @@ jobs:
         run: |
           pip install requests playwright
           playwright install chromium
-          playwright install-deps
+          playwright install-deps chromium
 
       - name: Checar Lojas
         env:
