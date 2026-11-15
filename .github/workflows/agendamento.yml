@@ -1,0 +1,26 @@
+name: Monitor Switch 2 Zelda
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  verificar-estoque:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar bibliotecas e navegador
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Checar Nintendo Store
+        run: python monitor.py
