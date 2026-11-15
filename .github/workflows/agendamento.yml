@@ -6,10 +6,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  verificar-estoque:
+  monitorar:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Baixar código
+      - name: Baixar código do repositório
         uses: actions/checkout@v4
 
       - name: Configurar Python
@@ -17,10 +18,13 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Instalar bibliotecas e navegador
+      - name: Instalar dependências
         run: |
-          pip install -r requirements.txt
+          pip install requests playwright
           playwright install chromium
+          playwright install-deps chromium
 
       - name: Checar Nintendo Store
+        env:
+          TOPICO_NTFY: ${{ secrets.TOPICO_NTFY }}
         run: python monitor.py
