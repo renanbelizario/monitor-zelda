@@ -1,9 +1,10 @@
+import os
 import time
 import requests
 from playwright.sync_api import sync_playwright
 
 URL_PRODUTO = "https://nintendo.com"
-TOPICO_NTFY = "meu_alerta_de_switch_2_8042"
+TOPICO_NTFY = os.environ.get("TOPICO_NTFY") or "meu_alerta_de_switch_2_8042"
 
 TOTAL_CHECAGENS = 15
 INTERVALO_SEGUNDOS = 60
@@ -22,33 +23,43 @@ def enviar_notificacao(mensagem):
 
 def verificar():
     with sync_playwright() as p:
-        # Argumentos para evitar bloqueio de bot na Nintendo Store
         browser = p.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled"]
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox"
+            ]
         )
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-            locale="en-US"
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            viewport={"width": 1366, "height": 768},
+            locale="en-US",
+            timezone_id="America/New_York"
         )
+        
+        # Esconde a assinatura de robô do Playwright
+        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
         page = context.new_page()
 
         for tentativa in range(1, TOTAL_CHECAGENS + 1):
             print(f"\n--- Checagem {tentativa} de {TOTAL_CHECAGENS} ---")
             try:
-                if tentativa == 1:
-                    page.goto(URL_PRODUTO, wait_until="networkidle", timeout=45000)
-                else:
-                    page.reload(wait_until="networkidle", timeout=45000)
+                # Navega direto para a URL do produto em toda checagem (evita ficar preso na home)
+                page.goto(URL_PRODUTO, wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_timeout(5000)
 
-                # Espera 3 segundos extras para o JavaScript terminar de carregar o botão
-                page.wait_for_timeout(3000)
-
+                url_atual = page.url
                 titulo_pagina = page.title()
-                print(f"Página carregada: {titulo_pagina}")
+                print(f"URL atual: {url_atual}")
+                print(f"Título: {titulo_pagina}")
 
-                # Procura botões que contenham algum dos textos de status de compra
+                # Se a Nintendo redirecionou para a home, tenta forçar a ida novamente
+                if "121642" not in url_atual:
+                    print("Redirecionado para fora do produto. Tentando acessar novamente...")
+                    page.goto(URL_PRODUTO, wait_until="load", timeout=45000)
+                    page.wait_for_timeout(5000)
+
                 botao = page.locator("button").filter(
                     has_text="Sold out"
                 ).or_(
@@ -60,15 +71,14 @@ def verificar():
                 if botao.count() > 0:
                     texto_botao = botao.inner_text().strip()
                     esta_desabilitado = botao.is_disabled()
-                    print(f"Sucesso! Botão: '{texto_botao}' | Desabilitado: {esta_desabilitado}")
+                    print(f"SUCESSO! Botão: '{texto_botao}' | Desabilitado: {esta_desabilitado}")
 
                     if not esta_desabilitado and "sold out" not in texto_botao.lower():
                         print("DISPONÍVEL! Disparando alerta urgente para o iPhone...")
                         enviar_notificacao(f"CORRA! O Switch 2 Zelda Edition voltou! Botão: {texto_botao}")
                         break
                 else:
-                    # Imprime um trecho do texto da página para sabermos o que apareceu na tela
-                    texto_visivel = page.locator("body").inner_text()[:300].replace("\n", " ")
+                    texto_visivel = page.locator("body").inner_text()[:250].replace("\n", " ")
                     print(f"Botão não encontrado. Texto na tela: {texto_visivel}")
 
             except Exception as erro:
