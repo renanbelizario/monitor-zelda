@@ -2,10 +2,7 @@ import time
 import requests
 from playwright.sync_api import sync_playwright
 
-URL_PRODUTO = (
-    "https://nintendo.com"
-    "nintendo-switch-2-the-legend-of-zelda-40th-anniversary-edition-121642/"
-)
+URL_PRODUTO = "https://nintendo.com"
 TOPICO_NTFY = "meu_alerta_de_switch_2_8042"
 
 TOTAL_CHECAGENS = 15
