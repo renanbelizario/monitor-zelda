@@ -1,8 +1,6 @@
 name: Monitor Switch 2 Zelda
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,16 +9,20 @@ jobs:
     steps:
       - name: Baixar código do repositório
         uses: actions/checkout@v4
+
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Instalar dependências
         run: |
           pip install requests playwright
           playwright install chromium
           playwright install-deps chromium
+
       - name: Checar Lojas
         env:
           TOPICO_NTFY: ${{ secrets.TOPICO_NTFY }}
+          PYTHONUNBUFFERED: "1"
         run: python -u monitor.py
