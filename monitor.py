@@ -1,11 +1,16 @@
+import time
 import requests
 from playwright.sync_api import sync_playwright
 
 URL_PRODUTO = (
-    "https://www.nintendo.com/us/store/products/"
+    "https://nintendo.com"
     "nintendo-switch-2-the-legend-of-zelda-40th-anniversary-edition-121642/"
 )
 TOPICO_NTFY = "meu_alerta_de_switch_2_8042"
+
+# Quantas vezes ele vai checar antes de fechar (15 vezes com pausa de 60s = 15 minutos)
+TOTAL_CHECAGENS = 15
+INTERVALO_SEGUNDOS = 60
 
 def enviar_notificacao(mensagem):
     requests.post(
@@ -29,30 +34,37 @@ def verificar():
         page = context.new_page()
 
         try:
-            print("Acessando a página da Nintendo...")
-            page.goto(URL_PRODUTO, wait_until="domcontentloaded", timeout=30000)
+            for tentativa in range(1, TOTAL_CHECAGENS + 1):
+                print(f"\n--- Checagem {tentativa} de {TOTAL_CHECAGENS} ---")
+                
+                if tentativa == 1:
+                    page.goto(URL_PRODUTO, wait_until="domcontentloaded", timeout=30000)
+                else:
+                    page.reload(wait_until="domcontentloaded", timeout=30000)
 
-            marcador = page.locator('span[data-drawer-id="add-to-cart-drawer"]')
-            marcador.wait_for(state="attached", timeout=20000)
+                marcador = page.locator('span[data-drawer-id="add-to-cart-drawer"]')
+                marcador.wait_for(state="attached", timeout=20000)
 
-            botao = page.locator('span[data-drawer-id="add-to-cart-drawer"]').locator("xpath=preceding::button")
-            
-            page.wait_for_function(
-                """(btn) => btn && btn.innerText.trim() !== '' && !btn.innerText.toLowerCase().includes('loading')""",
-                arg=botao.element_handle(),
-                timeout=15000
-            )
+                botao = page.locator('span[data-drawer-id="add-to-cart-drawer"]').locator("xpath=preceding::button")
+                
+                page.wait_for_function(
+                    """(btn) => btn && btn.innerText.trim() !== '' && !btn.innerText.toLowerCase().includes('loading')""",
+                    arg=botao.element_handle(),
+                    timeout=15000
+                )
 
-            texto_botao = botao.inner_text().strip()
-            esta_desabilitado = botao.is_disabled()
+                texto_botao = botao.inner_text().strip()
+                esta_desabilitado = botao.is_disabled()
 
-            print(f"Status carregado | Botão: '{texto_botao}' | Desabilitado: {esta_desabilitado}")
+                print(f"Status: '{texto_botao}' | Desabilitado: {esta_desabilitado}")
 
-            if not esta_desabilitado and "sold out" not in texto_botao.lower():
-                print("DISPONÍVEL! Disparando alerta para o iPhone...")
-                enviar_notificacao(f"Corra! O Switch 2 Zelda Edition voltou! Botão: {texto_botao}")
-            else:
-                print("Ainda esgotado. Aguardando próxima verificação.")
+                if not esta_desabilitado and "sold out" not in texto_botao.lower():
+                    print("DISPONÍVEL! Disparando alerta urgente para o iPhone...")
+                    enviar_notificacao(f"CORRA! O Switch 2 Zelda Edition voltou! Botão: {texto_botao}")
+                    break # Para o loop para não mandar 15 notificações seguidas
+                
+                if tentativa < TOTAL_CHECAGENS:
+                    time.sleep(INTERVALO_SEGUNDOS)
 
         except Exception as erro:
             print(f"Erro durante a verificação: {erro}")
