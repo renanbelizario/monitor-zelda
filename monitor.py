@@ -5,18 +5,18 @@ import random
 import requests
 from playwright.sync_api import sync_playwright
 
-# Lista completa com os links diretos das 5 lojas e teto máximo de US$ 520.00
+# Lista com as 4 lojas que funcionam liso no GitHub Actions (Best Buy desativada por bloqueio de IP)
 PRODUTOS = [
     {
         "loja": "Nintendo Store",
         "url": "https://www.nintendo.com/us/store/products/nintendo-switch-2-the-legend-of-zelda-40th-anniversary-edition-121642/",
         "preco_maximo": 520.00,
     },
-    {
-        "loja": "Best Buy",
-        "url": "https://www.bestbuy.com/site/6691841.p?skuId=6691841",
-        "preco_maximo": 520.00,
-    },
+    # {
+    #     "loja": "Best Buy",
+    #     "url": "https://www.bestbuy.com/site/6691841.p?skuId=6691841",
+    #     "preco_maximo": 520.00,
+    # },
     {
         "loja": "GameStop",
         "url": "https://www.gamestop.com/consoles-hardware/nintendo-switch-2/products/nintendo-switch-2-the-legend-of-zelda-40th-anniversary-edition/20037854.html",
@@ -35,7 +35,7 @@ PRODUTOS = [
 ]
 
 TOPICO_NTFY = os.environ.get("TOPICO_NTFY")
-TOTAL_RODADAS = 8
+TOTAL_RODADAS = 12  # 12 voltas completas nas 4 lojas (~14 minutos por ciclo)
 
 
 def enviar_notificacao(loja, url, mensagem):
@@ -89,7 +89,7 @@ def checar_produto(page, item):
     print(f"[{loja}] Acessando página...")
 
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        page.goto(url, wait_until="domcontentloaded", timeout=35000)
         page.wait_for_timeout(5000)
 
         texto_bruto = page.locator("body").inner_text()
@@ -124,13 +124,7 @@ def checar_produto(page, item):
                 print(f"[{loja}] Esgotado online (apenas loja física).")
                 return False
 
-        # 3. Trava específica da Best Buy: ignora quando exibe apenas retirada indisponível
-        if loja == "Best Buy":
-            if "shipping unavailable" in texto_lower or "choose pickup location" in texto_lower:
-                print(f"[{loja}] Esgotado online.")
-                return False
-
-        # 4. Verifica se existe botão ou aviso claro de esgotado
+        # 3. Verifica se existe botão ou aviso claro de esgotado
         botao_esgotado = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
                 r"sold out|out of stock|unavailable|not available|coming soon|check stores|available in stores",
@@ -142,7 +136,7 @@ def checar_produto(page, item):
             print(f"[{loja}] Esgotado ('{botao_esgotado.inner_text().strip()}').")
             return False
 
-        # 5. Procura APENAS botões reais de compra online
+        # 4. Procura botões reais de compra online
         botao_compra = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
                 r"^(add to cart|pre-order|pre-order now|buy now|ship it|add to bag)$",
@@ -183,7 +177,6 @@ def verificar():
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
-                "--disable-http2",
             ],
         )
         context = browser.new_context(
@@ -205,14 +198,14 @@ def verificar():
                 encontrou = checar_produto(page, item)
                 if encontrou:
                     PRODUTOS.remove(item)
-                time.sleep(random.randint(3, 5))
+                time.sleep(random.randint(2, 4))
 
             if not PRODUTOS:
                 print("Todos os itens monitorados foram encontrados! Encerrando.")
                 break
 
             if rodada < TOTAL_RODADAS:
-                espera = random.randint(35, 50)
+                espera = random.randint(25, 40)
                 print(f"Aguardando {espera}s para a próxima rodada...")
                 time.sleep(espera)
 
