@@ -8,7 +8,6 @@ on:
 jobs:
   monitorar:
     runs-on: ubuntu-latest
-
     steps:
       - name: Baixar código do repositório
         uses: actions/checkout@v4
@@ -22,9 +21,9 @@ jobs:
         run: |
           pip install requests playwright
           playwright install chromium
-          playwright install-deps chromium
+          playwright install-deps
 
-      - name: Checar Nintendo Store
+      - name: Checar Lojas
         env:
           TOPICO_NTFY: ${{ secrets.TOPICO_NTFY }}
-        run: python monitor.py
+        run: python -u monitor.py
