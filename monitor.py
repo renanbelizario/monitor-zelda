@@ -61,7 +61,7 @@ def verificar():
                 if not esta_desabilitado and "sold out" not in texto_botao.lower():
                     print("DISPONÍVEL! Disparando alerta urgente para o iPhone...")
                     enviar_notificacao(f"CORRA! O Switch 2 Zelda Edition voltou! Botão: {texto_botao}")
-                    break # Para o loop para não mandar 15 notificações seguidas
+                    break
                 
                 if tentativa < TOTAL_CHECAGENS:
                     time.sleep(INTERVALO_SEGUNDOS)
