@@ -109,7 +109,13 @@ async def checar_produto(context, item):
             print(f"[{loja}] Página desativada, erro ou CAPTCHA. Ignorando.")
             return item, False
 
-        # 2. Trava específica da GameStop
+        # 2. Trava específica da Nintendo Store (evita falso positivo quando "Sold out" está em texto/div)
+        if loja == "Nintendo Store":
+            if "sold out" in texto_lower or "out of stock" in texto_lower:
+                print(f"[{loja}] Esgotado ('Sold out' detectado na página).")
+                return item, False
+
+        # 3. Trava específica da GameStop
         if loja == "GameStop":
             termos_loja_fisica = [
                 "not available",
@@ -122,7 +128,7 @@ async def checar_produto(context, item):
                 print(f"[{loja}] Esgotado online (apenas loja física).")
                 return item, False
 
-        # 3. Verifica botão ou aviso claro de esgotado
+        # 4. Verifica botão ou aviso claro de esgotado
         botao_esgotado = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
                 r"sold out|out of stock|unavailable|not available|coming soon|check stores|available in stores",
@@ -135,7 +141,7 @@ async def checar_produto(context, item):
             print(f"[{loja}] Esgotado ('{texto_esg}').")
             return item, False
 
-        # 4. Procura botões reais de compra online
+        # 5. Procura botões reais de compra online
         botao_compra = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
                 r"^(add to cart|pre-order|pre-order now|buy now|ship it|add to bag)$",
@@ -143,7 +149,12 @@ async def checar_produto(context, item):
             )
         ).first
 
-        if await botao_compra.count() > 0 and not await botao_compra.is_disabled():
+        if await botao_compra.count() > 0:
+            aria_disabled = await botao_compra.get_attribute("aria-disabled")
+            if await botao_compra.is_disabled() or aria_disabled == "true":
+                print(f"[{loja}] Botão de compra presente, mas desabilitado.")
+                return item, False
+
             if not vendedor_oficial_confirmado(loja, texto_lower):
                 print(f"[{loja}] Ignorado: anúncio de revendedor terceirizado.")
                 return item, False
@@ -193,18 +204,10 @@ async def verificar():
 
         for rodada in range(1, TOTAL_RODADAS + 1):
             print(f"\n=== Rodada Simultânea {rodada} de {TOTAL_RODADAS} ===")
-            
-            # Dispara todas as lojas ao mesmo tempo em paralelo
+
+            # Dispara todas as lojas ao mesmo tempo em paralelo sem remover nenhuma após encontrar
             tarefas = [checar_produto(context, item) for item in PRODUTOS]
-            resultados = await asyncio.gather(*tarefas)
-
-            for item, encontrou in resultados:
-                if encontrou and item in PRODUTOS:
-                    PRODUTOS.remove(item)
-
-            if not PRODUTOS:
-                print("Todos os itens monitorados foram encontrados! Encerrando.")
-                break
+            await asyncio.gather(*tarefas)
 
             if rodada < TOTAL_RODADAS:
                 espera = random.randint(45, 60)
