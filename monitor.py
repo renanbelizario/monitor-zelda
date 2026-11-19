@@ -11,11 +11,11 @@ PRODUTOS = [
         "url": "https://www.nintendo.com/us/store/products/nintendo-switch-2-the-legend-of-zelda-40th-anniversary-edition-121642/",
         "preco_maximo": 520.00,
     },
-    {
-        "loja": "Best Buy",
-        "url": "https://www.bestbuy.com/site/6691841.p?skuId=6691841&intl=nosplash",
-        "preco_maximo": 520.00,
-    },
+#    {
+#       "loja": "Best Buy",
+#       "url": "https://www.bestbuy.com/site/6691841.p?skuId=6691841&intl=nosplash",
+#       "preco_maximo": 520.00,
+#   },
     {
         "loja": "GameStop",
         "url": "https://www.gamestop.com/consoles-hardware/nintendo-switch-2/products/nintendo-switch-2-the-legend-of-zelda-40th-anniversary-edition/20037854.html",
