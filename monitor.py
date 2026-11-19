@@ -11,11 +11,11 @@ PRODUTOS = [
         "url": "https://www.nintendo.com/us/store/products/nintendo-switch-2-the-legend-of-zelda-40th-anniversary-edition-121642/",
         "preco_maximo": 520.00,
     },
-    # {
-    #     "loja": "Best Buy",
-    #     "url": "https://www.bestbuy.com/site/6691841.p?skuId=6691841",
-    #     "preco_maximo": 520.00,
-    # },
+    {
+        "loja": "Best Buy",
+        "url": "https://www.bestbuy.com/site/6691841.p?skuId=6691841&intl=nosplash",
+        "preco_maximo": 520.00,
+    },
     {
         "loja": "GameStop",
         "url": "https://www.gamestop.com/consoles-hardware/nintendo-switch-2/products/nintendo-switch-2-the-legend-of-zelda-40th-anniversary-edition/20037854.html",
@@ -86,9 +86,48 @@ async def checar_produto(context, item):
     preco_maximo = item.get("preco_maximo", 520.00)
     page = await context.new_page()
 
+    # Captura estado do botão diretamente da API interna da Best Buy (se responder em segundo plano)
+    bestbuy_button_state = None
+
+    async def interceptar_resposta(response):
+        nonlocal bestbuy_button_state
+        if loja == "Best Buy" and ("buttonState" in response.url or "fulfillment" in response.url):
+            try:
+                if response.status == 200:
+                    dados = await response.text()
+                    match = re.search(r'"buttonState"\s*:\s*"([A-Z_]+)"', dados)
+                    if match:
+                        bestbuy_button_state = match.group(1)
+            except Exception:
+                pass
+
+    if loja == "Best Buy":
+        page.on("response", interceptar_resposta)
+
     try:
+        # Bloqueia imagens, fontes e mídia na Best Buy para carregar mais rápido e evitar timeout
+        if loja == "Best Buy":
+            await page.route(
+                "**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,mp4}",
+                lambda route: route.abort(),
+            )
+
         await page.goto(url, wait_until="domcontentloaded", timeout=35000)
-        await page.wait_for_timeout(5000)
+        await page.wait_for_timeout(6000 if loja == "Best Buy" else 5000)
+
+        # Avaliação rápida via JSON interceptado da Best Buy
+        if loja == "Best Buy" and bestbuy_button_state:
+            if bestbuy_button_state in ["ADD_TO_CART", "PRE_ORDER"]:
+                print(f"[{loja}] DISPONÍVEL ONLINE (API buttonState: {bestbuy_button_state})!")
+                enviar_notificacao(
+                    loja,
+                    url,
+                    f"CORRA! Estoque OFICIAL na {loja}! Status: {bestbuy_button_state}",
+                )
+                return item, True
+            else:
+                print(f"[{loja}] Esgotado via API ({bestbuy_button_state}).")
+                return item, False
 
         texto_bruto = await page.locator("body").inner_text()
         texto_lower = texto_bruto.lower()
@@ -109,13 +148,22 @@ async def checar_produto(context, item):
             print(f"[{loja}] Página desativada, erro ou CAPTCHA. Ignorando.")
             return item, False
 
-        # 2. Trava específica da Nintendo Store (evita falso positivo quando "Sold out" está em texto/div)
+        # 2. Trava específica da Nintendo Store
         if loja == "Nintendo Store":
             if "sold out" in texto_lower or "out of stock" in texto_lower:
                 print(f"[{loja}] Esgotado ('Sold out' detectado na página).")
                 return item, False
 
-        # 3. Trava específica da GameStop
+        # 3. Trava específica da Best Buy (HTML fallback)
+        if loja == "Best Buy":
+            if "choose a country" in texto_lower:
+                print(f"[{loja}] Bloqueio de seletor de país (Akamai/Geo).")
+                return item, False
+            if "sold out" in texto_lower or "coming soon" in texto_lower or "unavailable nearby" in texto_lower:
+                print(f"[{loja}] Esgotado no HTML.")
+                return item, False
+
+        # 4. Trava específica da GameStop
         if loja == "GameStop":
             termos_loja_fisica = [
                 "not available",
@@ -128,7 +176,7 @@ async def checar_produto(context, item):
                 print(f"[{loja}] Esgotado online (apenas loja física).")
                 return item, False
 
-        # 4. Verifica botão ou aviso claro de esgotado
+        # 5. Verifica botão ou aviso claro de esgotado
         botao_esgotado = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
                 r"sold out|out of stock|unavailable|not available|coming soon|check stores|available in stores",
@@ -141,7 +189,7 @@ async def checar_produto(context, item):
             print(f"[{loja}] Esgotado ('{texto_esg}').")
             return item, False
 
-        # 5. Procura botões reais de compra online
+        # 6. Procura botões reais de compra online
         botao_compra = page.locator("button, input[type='submit']").filter(
             has_text=re.compile(
                 r"^(add to cart|pre-order|pre-order now|buy now|ship it|add to bag)$",
@@ -176,7 +224,7 @@ async def checar_produto(context, item):
         return item, False
 
     except Exception as erro:
-        print(f"[{loja}] Erro ao carregar: {erro}")
+        print(f"[{loja}] Erro ao carregar (bloqueio WAF/timeout): {str(erro).splitlines()[0]}")
         return item, False
     finally:
         await page.close()
@@ -189,13 +237,32 @@ async def verificar():
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
+                "--disable-http2",
             ],
         )
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             viewport={"width": 1366, "height": 768},
             locale="en-US",
             timezone_id="America/New_York",
+        )
+
+        # Define cookies de sessão dos EUA para pular a tela de escolha de país da Best Buy
+        await context.add_cookies(
+            [
+                {
+                    "name": "intl_splash",
+                    "value": "false",
+                    "domain": ".bestbuy.com",
+                    "path": "/",
+                },
+                {
+                    "name": "vt",
+                    "value": "us",
+                    "domain": ".bestbuy.com",
+                    "path": "/",
+                },
+            ]
         )
 
         await context.add_init_script(
@@ -205,7 +272,6 @@ async def verificar():
         for rodada in range(1, TOTAL_RODADAS + 1):
             print(f"\n=== Rodada Simultânea {rodada} de {TOTAL_RODADAS} ===")
 
-            # Dispara todas as lojas ao mesmo tempo em paralelo sem remover nenhuma após encontrar
             tarefas = [checar_produto(context, item) for item in PRODUTOS]
             await asyncio.gather(*tarefas)
 
